@@ -1,5 +1,6 @@
 #pragma once
 #include <cassert>
+#include <concepts>
 #include <cstdint>
 #include <optional>
 #include <type_traits>
@@ -22,12 +23,19 @@ template <typename T>
 constexpr bool is_reference_like_v = is_reference_like<T>;
 
 template <typename T>
+concept has_policy_bool = requires(T policy) {
+  requires std::same_as<decltype(policy.allow_reinterpret), const bool>;
+  requires std::same_as<decltype(policy.allow_const_removal), const bool>;
+  requires std::same_as<decltype(policy.allow_non_polymorphic_downcast),
+                        const bool>;
+  requires std::same_as<decltype(policy.allow_standard_pointer_integer_cast),
+                        const bool>;
+};
+
+template <typename T>
 concept is_cast_policy = requires {
-  T::tag;
-  T::allow_reinterpret;
-  T::allow_const_removal;
-  T::allow_non_polymorphic_downcast;
-  T::allow_standard_pointer_integer_cast;
+  typename T::tag;
+  requires has_policy_bool<T>;
 };
 
 template <typename T>
@@ -104,6 +112,37 @@ struct is_reference_like<T&&>
 template <typename T>
 constexpr bool is_reference_like_v = is_reference_like<T>::value;
 
+template <typename T, typename = void>
+struct is_cast_policy : std::false_type
+{
+};
+
+template <typename T>
+struct is_cast_policy<
+    T, std::void_t<typename T::tag, typename T::allow_reinterpret,
+                   typename T::allow_const_removal,
+                   typename T::allow_non_polymorphic_downcast,
+                   typename T::allow_standard_pointer_integer_cast>>
+    : std::true_type
+{
+};
+
+template <typename T>
+constexpr bool standard_pointer_integer =
+    std::is_same_v<T, std::intptr_t> || std::is_same_v<T, std::uintptr_t>;
+
+template <typename From, typename To>
+constexpr bool PointerToStandardInteger =
+    std::is_pointer_v<From> && standard_pointer_integer<To>;
+
+template <typename From, typename To>
+constexpr bool StandardIntegerToPointer =
+    standard_pointer_integer<From> && std::is_pointer_v<To>;
+
+template <typename From, typename To>
+constexpr bool is_standard_pointer_integer_conversion =
+    PointerToStandardInteger<From, To> || StandardIntegerToPointer<From, To>;
+
 #endif
 
 // 策略标签
@@ -123,7 +162,7 @@ struct default_policy
   using tag = safe_cast_tag;
   static constexpr bool allow_reinterpret = false;
   static constexpr bool allow_const_removal = true;
-  static constexpr bool allow_non_polymorphic_downcast = true;
+  static constexpr bool allow_non_polymorphic_downcast = false;
   static constexpr bool allow_standard_pointer_integer_cast = true;
 };
 
@@ -253,7 +292,7 @@ private:
   static T safe_down_cast(F from)
     requires(
         std::is_base_of_v<std::remove_pointer_t<F>, std::remove_pointer_t<T>> &&
-        std::is_polymorphic_v<F> &&
+        std::is_polymorphic_v<std::remove_pointer_t<F>> &&
         (is_pointer_like_v<T> && is_pointer_like_v<F>))
   {
     auto result = dynamic_cast<T>(from);
@@ -282,7 +321,7 @@ private:
   static T unsafe_down_cast(F from) noexcept
     requires(
         std::is_base_of_v<std::remove_pointer_t<F>, std::remove_pointer_t<T>> &&
-        !std::is_polymorphic_v<F> &&
+        !std::is_polymorphic_v<std::remove_pointer_t<F>> &&
         (is_pointer_like_v<T> || is_reference_like_v<T>) &&
         (is_pointer_like_v<F> || is_reference_like_v<F>))
   {
@@ -334,7 +373,7 @@ private:
   }
 
   template <typename T = To, typename F = From>
-  static T standard_pointer_integer_cast(F  /*from*/) noexcept
+  static T standard_pointer_integer_cast(F /*from*/) noexcept
     requires(!allow_standard_pointer_integer_cast &&
              ((std::is_integral_v<T> && is_pointer_like_v<F>) ||
               (is_pointer_like_v<T> && std::is_integral_v<F>)))
@@ -368,7 +407,7 @@ public:
     else if constexpr (std::is_base_of_v<std::remove_pointer_t<From>,
                                          std::remove_pointer_t<To>>) {
       // 向下转换
-      if constexpr (std::is_polymorphic_v<From>) {
+      if constexpr (std::is_polymorphic_v<std::remove_pointer_t<From>>) {
         return safe_down_cast(from);
       }
       else {
@@ -445,7 +484,8 @@ private:
   static constexpr bool allow_const_removal = Policy::allow_const_removal;
   static constexpr bool allow_non_polymorphic_downcast =
       Policy::allow_non_polymorphic_downcast;
-
+  static constexpr bool allow_standard_pointer_integer_cast =
+      Policy::allow_standard_pointer_integer_cast;
   // 编译时错误信息
   template <bool Condition>
   struct static_check
@@ -484,6 +524,16 @@ private:
                   "auto_cast<To, strict_policy>.");
   };
 
+  struct standard_pointer_integer_cast_not_allowed
+  {
+    static_assert(
+        allow_standard_pointer_integer_cast,
+        "auto_cast<>: standard pointer integer cast is not allowed by the "
+        "current policy. "
+        "Consider using auto_cast<To, default_policy> instead of "
+        "auto_cast<To, strict_policy>.");
+  };
+
   // 基本类型转换实现
   template <typename T = To, typename F = From,
             std::enable_if_t<std::is_same_v<T, F>, int> = 0>
@@ -508,7 +558,8 @@ private:
 
   // 向上转换
   template <typename T = To, typename F = From,
-            std::enable_if_t<std::is_base_of_v<T, F> &&
+            std::enable_if_t<std::is_base_of_v<std::remove_pointer_t<T>,
+                                               std::remove_pointer_t<F>> &&
                                  (is_pointer_like_v<T> && is_pointer_like_v<F>),
                              int> = 0>
   static T up_cast(F from) noexcept
@@ -529,7 +580,9 @@ private:
   // 向下转换 - 多态类型用dynamic_cast
   template <
       typename T = To, typename F = From,
-      std::enable_if_t<std::is_base_of_v<F, T> && std::is_polymorphic_v<F> &&
+      std::enable_if_t<std::is_base_of_v<std::remove_pointer_t<F>,
+                                         std::remove_pointer_t<T>> &&
+                           std::is_polymorphic_v<std::remove_pointer_t<F>> &&
                            (is_pointer_like_v<T> && is_pointer_like_v<F>),
                        int> = 0>
   static T safe_down_cast(F from)
@@ -560,7 +613,9 @@ private:
   // 向下转换 - 非多态类型用static_cast（检查策略）
   template <
       typename T = To, typename F = From,
-      std::enable_if_t<std::is_base_of_v<F, T> && !std::is_polymorphic_v<F> &&
+      std::enable_if_t<std::is_base_of_v<std::remove_pointer_t<F>,
+                                         std::remove_pointer_t<T>> &&
+                           !std::is_polymorphic_v<std::remove_pointer_t<F>> &&
                            (is_pointer_like_v<T> || is_reference_like_v<T>) &&
                            (is_pointer_like_v<F> || is_reference_like_v<F>),
                        int> = 0>
@@ -610,6 +665,29 @@ private:
     return T{};
   }
 
+  template <
+      typename T = To, typename F = From,
+      std::enable_if_t<allow_standard_pointer_integer_cast &&
+                           ((std::is_integral_v<T> && is_pointer_like_v<F>) ||
+                            (is_pointer_like_v<T> && std::is_integral_v<F>)),
+                       int> = 0>
+  static T standard_pointer_integer_cast(F from) noexcept
+  {
+    return reinterpret_cast<T>(from);
+  }
+
+  template <
+      typename T = To, typename F = From,
+      std::enable_if_t<!allow_standard_pointer_integer_cast &&
+                           ((std::is_integral_v<T> && is_pointer_like_v<F>) ||
+                            (is_pointer_like_v<T> && std::is_integral_v<F>)),
+                       int> = 0>
+  static T standard_pointer_integer_cast(F /*from*/) noexcept
+  {
+    standard_pointer_integer_cast_not_allowed error;
+    return T{};
+  }
+
 public:
   static To cast(From from)
   {
@@ -618,8 +696,7 @@ public:
       return same_type_cast(from);
     }
     else if constexpr (std::is_same_v<std::remove_const_t<To>,
-                                      std::remove_const_t<From>> &&
-                       !std::is_same_v<To, From>) {
+                                      std::remove_const_t<From>>) {
       // 只有const不同的类型
       if constexpr (std::is_const_v<From> && !std::is_const_v<To>) {
         return remove_const_cast(from);
@@ -628,13 +705,15 @@ public:
         return static_cast<To>(from);
       }
     }
-    else if constexpr (std::is_base_of_v<To, From>) {
+    else if constexpr (std::is_base_of_v<std::remove_pointer_t<To>,
+                                         std::remove_pointer_t<From>>) {
       // 向上转换总是安全的
       return up_cast(from);
     }
-    else if constexpr (std::is_base_of_v<From, To>) {
+    else if constexpr (std::is_base_of_v<std::remove_pointer_t<From>,
+                                         std::remove_pointer_t<To>>) {
       // 向下转换
-      if constexpr (std::is_polymorphic_v<From>) {
+      if constexpr (std::is_polymorphic_v<std::remove_pointer_t<From>>) {
         return safe_down_cast(from);
       }
       else {
@@ -644,6 +723,9 @@ public:
     else if constexpr (std::is_convertible_v<From, To>) {
       // 标准转换
       return standard_cast(from);
+    }
+    else if constexpr (is_standard_pointer_integer_conversion<From, To>) {
+      return standard_pointer_integer_cast(from);
     }
     else if constexpr ((is_pointer_like_v<To> && is_pointer_like_v<From>) ||
                        (std::is_integral_v<To> && is_pointer_like_v<From>) ||

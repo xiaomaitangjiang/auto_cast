@@ -1,4 +1,6 @@
+#include <cstdint>
 #include <iostream>
+#include <type_traits>
 #include "../inc/auto_cast.hpp"
 
 // 使用示例
@@ -30,6 +32,7 @@ struct my_policy
   static constexpr bool allow_reinterpret = false;               // 禁止reinterpret
   static constexpr bool allow_const_removal = true;              // 允许去const
   static constexpr bool allow_non_polymorphic_downcast = false;  // 禁止非多态向下转换
+  static constexpr bool allow_standard_pointer_integer_cast = true;
 };
 
 void demonstrate_different_policies()
@@ -41,6 +44,7 @@ void demonstrate_different_policies()
 
   int x = 42;
   int* ptr = &x;
+  
 
   // 安全模式允许的转换
   uintptr_t int_ptr1 = auto_cast<uintptr_t>(ptr);  // 标准转换
@@ -66,7 +70,7 @@ void demonstrate_different_policies()
 
   int y = 100;
   // 严格模式允许的转换
-  int int_y = auto_cast<int>(y);  // 允许，没有去const
+  std::int16_t int_y = auto_cast<int>(y);  // 允许，没有去const
   std::cout << "   标准转换: " << int_y << "\n";
 
   // 严格模式禁止的转换
@@ -79,9 +83,10 @@ void demonstrate_different_policies()
   NonPolymorphicDerived npd;
   NonPolymorphicBase* npb = &npd;
 
-  // 默认策略允许
-  NonPolymorphicDerived* npd2 = auto_cast<NonPolymorphicDerived*>(npb);
-  std::cout << "   默认策略允许非多态向下转换\n";
+  // 不安全模式允许
+  NonPolymorphicDerived* npd2 = auto_cast<NonPolymorphicDerived*,unsafe_policy>(npb);
+  std::cout << "   不安全模式允许非多态向下转换\n";
+  //安全模式下不允许非多态向下转换,因为这一行为一般是不安全的
 
   // 严格模式禁止
   // 以下代码在编译时会报错：
@@ -103,7 +108,7 @@ void demonstrate_different_policies()
   // 错误的向下转换
   Base* base2 = new Base();
   if (auto derived2 = try_auto_cast<Derived*>(base2)) {
-    std::cout << "   转换成功（不应该打印）\n";
+    std::cout << "   转换成功（不安全）\n";
   }
   else {
     std::cout << "   转换失败，返回nullopt\n";
@@ -116,7 +121,7 @@ void demonstrate_different_policies()
 
   const int z = 200;
   int ref_z = auto_cast<int, my_policy>(z);
-  std::cout << "   自定义策略：允许去const，禁止reinterpret和非多态向下转换\n";
+  std::cout << "   自定义策略：允许去const，禁止reinterpret和非多态向下转换:"<<ref_z<<"\n";
 
   delete base;
   delete base2;
