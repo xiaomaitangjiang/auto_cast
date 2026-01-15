@@ -103,7 +103,7 @@ double b = auto_cast<double>(a); // 标准转换
 
 const char* str = "hello";
 
-// char* mutable_str = auto_cast<char*>(str); // 安全模式允许去const
+char* mutable_str = auto_cast<char*>(str); // 安全模式允许去const
 ```
 
 ### 2. 类继承转换
@@ -145,7 +145,7 @@ uintptr_t int_val = auto_cast<uintptr_t>(ptr);
 
 // 整数到指针（需要不安全模式）
 
-// int* ptr2 = auto_cast_unsafe<int*>(int_val);
+int* ptr2 = auto_cast_unsafe<int*>(int_val);
 ```
 
 ### 4. 错误处理
@@ -182,20 +182,16 @@ std::cout << "转换失败\n";
 struct my_policy {
 
 using tag = safe_cast_tag;
-
 static constexpr bool allow_reinterpret = false;
-
 static constexpr bool allow_const_removal = true;
-
 static constexpr bool allow_non_polymorphic_downcast = false;
-
 static constexpr bool allow_standard_pointer_integer_cast = true;
 
 };
 
 // 使用自定义策略
-
 int result = auto_cast<int, my_policy>(some_value);
+
 ```
 
 ## 编译要求
@@ -244,4 +240,4 @@ project/
 
 - v1.0.0: 初始版本，支持基本转换策略
 - 支持C++17和C++20标准
-- 提供安全、不安全、严格三种策略模式
+- 默认提供安全、不安全、严格三种策略模式
