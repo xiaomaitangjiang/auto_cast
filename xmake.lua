@@ -1,12 +1,14 @@
 add_rules("mode.debug", "mode.release")
 set_languages("c99","c++14")
 
-
+target("auto_cast")
+    set_kind("static")
+    add_includedirs("inc")
 
 target("auto_cast_test")
     set_kind("binary")
     add_files("src/main.cpp")
-    add_includedirs("inc")
+    add_packages("auto_cast")
 --
 -- If you want to known more usage about xmake, please see https://xmake.io
 --

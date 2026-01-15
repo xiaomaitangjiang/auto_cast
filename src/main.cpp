@@ -5,8 +5,6 @@
 #include <iostream>
 
 
-
-
 // สนำรสพภý
 class Base
 {
