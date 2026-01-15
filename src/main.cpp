@@ -1,7 +1,11 @@
-#include <cstdint>
-#include <iostream>
-#include <type_traits>
 #include "../inc/auto_cast.hpp"
+
+#include <cstdint>
+
+#include <iostream>
+
+
+
 
 // 使用示例
 class Base
@@ -37,10 +41,10 @@ struct my_policy
 
 void demonstrate_different_policies()
 {
-  std::cout << "=== 演示不同策略的auto_cast ===\n\n";
+  std::cout << "=== 演示不同策略的auto_cast ===\n";
 
   // 1. 默认策略（安全模式）
-  std::cout << "1. 默认策略（安全模式）:\n";
+  std::cout << "1. 默认策略（安全模式）:"<<"\n";
 
   int x = 42;
   int* ptr = &x;
@@ -91,7 +95,7 @@ void demonstrate_different_policies()
   // 严格模式禁止
   // 以下代码在编译时会报错：
   // NonPolymorphicDerived* npd3 =
-  //     auto_cast_strict<NonPolymorphicDerived*>(npb);  //
+  //    auto_cast_strict<NonPolymorphicDerived*>(npb);  //
   //     错误：不允许非多态向下转换
 
   // 5. 运行时安全版本
@@ -99,19 +103,26 @@ void demonstrate_different_policies()
 
   Base* base = new Derived();
 
-  // 使用try_auto_cast，返回optional
+  // cpp17及以上,使用try_auto_cast，返回optional
+  #if CPP_17
   if (auto derived = try_auto_cast<Derived*>(base)) {
     std::cout << "   转换成功\n";
     (*derived)->foo();
   }
+  #else
+  if (auto derived = try_auto_cast<Derived*>(base)) {
+    std::cout << "   转换成功\n"<<"\n";
+    derived->foo();
+  }
+#endif
 
   // 错误的向下转换
   Base* base2 = new Base();
   if (auto derived2 = try_auto_cast<Derived*>(base2)) {
-    std::cout << "   转换成功（不安全）\n";
+    std::cout << "   转换成功（不应该打印）\n";
   }
   else {
-    std::cout << "   转换失败，返回nullopt\n";
+    std::cout << "   转换失败，返回空对象\n";
   }
 
   // 6. 不同策略的组合
